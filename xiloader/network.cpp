@@ -23,11 +23,19 @@ This file is part of DarkStar-server source code.
 
 #include "network.h"
 
+template<typename T, typename U>
+T& ref(U* buf, std::size_t index)
+{
+    return *reinterpret_cast<T*>(reinterpret_cast<unsigned char*>(buf) + index);
+}
+
 /* Externals */
 extern std::string g_ServerAddress;
+extern std::string g_Email;
 extern std::string g_Username;
 extern std::string g_Password;
 extern std::string g_ServerPort;
+extern unsigned char g_SessionHash[16];
 extern char* g_CharacterList;
 extern bool g_IsRunning;
 
@@ -206,8 +214,10 @@ namespace xiloader
     {
         static bool bFirstLogin = true;
 
+        //unsigned char recvBuffer[1024] = { 0 };
         char recvBuffer[1024] = { 0 };
         char sendBuffer[1024] = { 0 };
+        g_Email = "\0";
 
         /* Create connection if required.. */
         if (sock->s == NULL || sock->s == INVALID_SOCKET)
@@ -237,7 +247,7 @@ namespace xiloader
             /* User wants to log into an existing account.. */
             if (input == "1")
             {
-                xiloader::console::output("Please enter your login information.");
+                xiloader::console::output("Please enter your login information. Press CTRL + c to quit.");
                 std::cout << "\nUsername: ";
                 std::cin >> g_Username;
                 std::cout << "Password: ";
@@ -265,28 +275,52 @@ namespace xiloader
                 }
                 std::cout << std::endl;
 
-                sendBuffer[0x20] = 0x10;
+                sendBuffer[0xFF] = 0x10;
             }
             /* User wants to create a new account.. */
             else if (input == "2")
             {
-            create_account:
-                xiloader::console::output("Please enter your desired login information.");
-                std::cout << "\nUsername (3-15 characters): ";
+            retry_email:
+                xiloader::console::output("Please enter your desired login information.\n");
+                std::cout << "Email is used for password resets.\n";
+                std::cout << "Email (3-63 characters)         : ";
+                std::cin >> g_Email;
+                std::cout << "Repeat Email                    : ";
+                std::cin >> input;
+
+                if (input != g_Email)
+                {
+                    xiloader::console::output(xiloader::color::error, "Emails did not match! Please try again.");
+                    goto retry_email;
+                }
+                else if (g_Email.length() < 3 || g_Email.length() > 63)
+                {
+                    xiloader::console::output(color::error, "E-mail was too short, or too long! Please try again.");
+                    goto retry_email;
+                }
+
+                std::cout << "Username (3-63 characters)      : ";
                 std::cin >> g_Username;
-                std::cout << "Password (6-15 characters): ";
+
+            retry_password:
+                std::cout << "Password (6-63 characters)      : ";
                 std::cin >> g_Password;
-                std::cout << "Repeat Password           : ";
+                std::cout << "Repeat Password                 : ";
                 std::cin >> input;
                 std::cout << std::endl;
 
                 if (input != g_Password)
                 {
                     xiloader::console::output(xiloader::color::error, "Passwords did not match! Please try again.");
-                    goto create_account;
+                    goto retry_password;
+                }
+                else if (g_Password.length() < 6 || g_Password.length() > 63)
+                {
+                    xiloader::console::output(color::error, "Password was too short, or too long! Please try again.");
+                    goto retry_password;
                 }
 
-                sendBuffer[0x20] = 0x20;
+                sendBuffer[0xFF] = 0x20; // LOGIN_CREATE
             }
 
             std::cout << std::endl;
@@ -294,17 +328,18 @@ namespace xiloader
         else
         {
             /* User has auto-login enabled.. */
-            sendBuffer[0x20] = 0x10;
+            sendBuffer[0xFF] = 0x10;
             bFirstLogin = false;
         }
 
-        /* Copy username and password into buffer.. */
-        memcpy(sendBuffer + 0x00, g_Username.c_str(), 16);
-        memcpy(sendBuffer + 0x10, g_Password.c_str(), 16);
+        /* Copy username, password and email into buffer.. */
+        memcpy(sendBuffer + 0x0, g_Username.c_str(), 64);
+        memcpy(sendBuffer + 0x40, g_Password.c_str(), 64);
+        memcpy(sendBuffer + 0x80, g_Email.c_str(), 64);
 
         /* Send info to server and obtain response.. */
-        send(sock->s, sendBuffer, 33, 0);
-        recv(sock->s, recvBuffer, 16, 0);
+        send(sock->s, sendBuffer, 256, 0);
+        recv(sock->s, recvBuffer, 21, 0);
 
         /* Handle the obtained result.. */
         switch (recvBuffer[0])
@@ -312,12 +347,13 @@ namespace xiloader
         case 0x0001: // Success (Login)
             xiloader::console::output(xiloader::color::success, "Successfully logged in as %s!", g_Username.c_str());
             sock->AccountId = *(UINT32*)(recvBuffer + 0x01);
+            memcpy(g_SessionHash, (UCHAR*)(recvBuffer + 0x05), 16);
             closesocket(sock->s);
             sock->s = INVALID_SOCKET;
             return true;
 
         case 0x0002: // Error (Login)
-            xiloader::console::output(xiloader::color::error, "Failed to login. Invalid username or password.");
+            xiloader::console::output(xiloader::color::error, "Failed to login as %s.", g_Username.c_str());
             closesocket(sock->s);
             sock->s = INVALID_SOCKET;
             return false;
@@ -330,6 +366,12 @@ namespace xiloader
 
         case 0x0004: // Error (Create Account)
             xiloader::console::output(xiloader::color::error, "Failed to create the new account. Username already taken.");
+            closesocket(sock->s);
+            sock->s = INVALID_SOCKET;
+            return false;
+
+        case 0x0005: // Wait (Session Active)
+            xiloader::console::output(xiloader::color::error, "Character logged in. Please wait a few minutes and try again.");
             closesocket(sock->s);
             sock->s = INVALID_SOCKET;
             return false;
@@ -382,7 +424,7 @@ namespace xiloader
                 break;
 
             case 0x0003:
-                xiloader::console::output(xiloader::color::warning, "Receiving character list..");
+                xiloader::console::output(xiloader::color::warning, "Receiving legacy character list..");
                 for (auto x = 0; x <= recvBuffer[1]; x++)
                 {
                     g_CharacterList[0x00 + (x * 0x68)] = 1;
@@ -396,6 +438,28 @@ namespace xiloader
                     memcpy(g_CharacterList + 0x08 + (x * 0x68), recvBuffer + 0x10 * (x + 1), 4); // Content Id
                 }
                 sendSize = 0;
+                break;
+
+            case 0x0004:
+                xiloader::console::output(xiloader::color::warning, "Receiving character list...");
+                for (auto x = 0; x < recvBuffer[1]; x++) // 1 = size/length/character count
+                {
+                    g_CharacterList[0x00 + (x * 0x68)] = 1;
+                    g_CharacterList[0x02 + (x * 0x68)] = 1;
+                    g_CharacterList[0x10 + (x * 0x68)] = (char)x;
+                    g_CharacterList[0x11 + (x * 0x68)] = 0x80u;
+                    g_CharacterList[0x18 + (x * 0x68)] = 0x20;
+                    g_CharacterList[0x28 + (x * 0x68)] = 0x20;
+
+                    memcpy(g_CharacterList + 0x04 + (x * 0x68), recvBuffer + (0x10 * (x + 1)) + 0x04, 4); // Character Id
+                    memcpy(g_CharacterList + 0x08 + (x * 0x68), recvBuffer + 0x10 * (x + 1), 4); // Content Id
+                }
+                sendSize = 0;
+                break;
+
+            case 0x0005:
+                sendBuffer[0] = 0xA5u; // Heartbeat response
+                sendSize = 1;
                 break;
             }
 
