@@ -37,7 +37,6 @@ This file is part of DarkStar-server source code.
 #include <string>
 #include <time.h>
 
-#pragma comment(lib, "detours/detours.lib")
 #include "detours/detours.h"
 
 #include "polcore.h"
