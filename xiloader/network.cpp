@@ -410,7 +410,23 @@ namespace xiloader
 
         /* Send info to server and obtain response.. */
         send(sock->s, sendBuffer, 0x104, 0);
-        recv(sock->s, recvBuffer, 0x15, 0);
+        received = recv(sock->s, recvBuffer, 0x15, 0);
+
+        if (received < 0)
+        {
+            int errorCode = WSAGetLastError();
+            wchar_t* s = NULL;
+            FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                NULL, errorCode,
+                MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                (LPWSTR)&s, 0, NULL);
+            xiloader::console::output(xiloader::color::error, "%d: %S\n", errorCode, s);
+            LocalFree(s);
+
+            std::cout << "Press the ENTER key to close and retry...";
+            getline(std::cin, registrationCode);
+            exit(0);
+        }
 
         bool result = false;
 
