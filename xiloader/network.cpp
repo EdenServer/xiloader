@@ -360,8 +360,19 @@ namespace xiloader
 
         sendBuffer[0] = 1;
         send(sock->s, sendBuffer, 1, 0);
-        int received = recv(sock->s, recvBuffer, 26624 + 12, 0);
-        std::string uniqueKey(recvBuffer + received - 8, recvBuffer + received);
+
+        unsigned int expectedLength = 0;
+        recv(sock->s, (char*)&expectedLength, 4, 0);
+
+        int bytesRead = 0;
+        int received = 0;
+        do
+        {
+            received = recv(sock->s, recvBuffer + bytesRead, expectedLength - bytesRead, 0);
+            bytesRead += received;
+        } while (expectedLength > bytesRead && received != 0);
+
+        std::string uniqueKey(recvBuffer + bytesRead - 8, recvBuffer + bytesRead);
 
         memset(sendBuffer, 0, 1024);
         memset(recvBuffer, 0, 32768);
