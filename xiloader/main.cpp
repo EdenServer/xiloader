@@ -27,12 +27,20 @@ This file is part of DarkStar-server source code.
 #include "functions.h"
 #include "network.h"
 
+#include <intrin.h>
+
 /* Global Variables */
 xiloader::Language g_Language = xiloader::Language::English; // The language of the loader to be used for polcore.
 std::string g_ServerAddress = "127.0.0.1"; // The server address to connect to.
 std::string g_ServerPort = "51220"; // The server lobby server port to connect to.
+std::string g_Email = ""; // The email provided during account creation.
 std::string g_Username = ""; // The username being logged in with.
 std::string g_Password = ""; // The password being logged in with.
+std::string g_Discord = ""; // The optional Discord handle.
+std::string g_Hostname = ""; // 1-15 characters, https://support.microsoft.com/en-us/help/909264/naming-conventions-in-active-directory-for-computers-domains-sites-and
+
+unsigned char g_SessionHash[16] = { 0 }; // Session variable
+
 char* g_CharacterList = NULL; // Pointer to the character list data being sent from the server.
 bool g_IsRunning = false; // Flag to determine if the network threads should hault.
 bool g_Hide = false; // Determines whether or not to hide the console window after FFXI starts.
@@ -137,12 +145,27 @@ hostent* __stdcall Mine_gethostbyname(const char* name)
 {
     xiloader::console::output(xiloader::color::debug, "Resolving host: %s", name);
 
+    g_Hostname.clear();
+    g_Hostname.append(name);
+
     if (!strcmp("ffxi00.pol.com", name))
         return Real_gethostbyname(g_ServerAddress.c_str());
     if (!strcmp("pp000.pol.com", name))
         return Real_gethostbyname("127.0.0.1");
 
     return Real_gethostbyname(name);
+}
+
+extern "C"     int(WSAAPI * Real_send)(__in SOCKET s, __in_bcount(len) const char FAR * buf, __in int len, __in int flags) = send;
+
+int WSAAPI Mine_send(__in SOCKET s, __in_bcount(len) const char FAR* buf, __in int len, __in int flags)
+{
+    const auto ret = _ReturnAddress();
+    if (len == 0x98 && buf[8] == 0x26) { // always send server provided session hash in the first view socket outbound packet
+        memcpy((BYTE*)(buf + 12), g_SessionHash, 16);
+    }
+
+    return Real_send(s, buf, len, flags);
 }
 
 /**
@@ -196,8 +219,12 @@ int __cdecl main(int argc, char* argv[])
     /* Output the DarkStar banner.. */
     xiloader::console::output(xiloader::color::lightred, "==========================================================");
     xiloader::console::output(xiloader::color::lightgreen, "DarkStar Boot Loader (c) 2015 DarkStar Team");
-    xiloader::console::output(xiloader::color::lightpurple, "Bug Reports: https://github.com/DarkstarProject/darkstar/issues");
-    xiloader::console::output(xiloader::color::lightpurple, "Git Repo   : https://github.com/DarkstarProject/darkstar");
+    xiloader::console::output(xiloader::color::lightgreen, "Modified to be able to connect to the Eden server.");
+    xiloader::console::output(xiloader::color::lightcyan, "Bug Reports: https://github.com/EdenServer/xiloader/issues");
+    xiloader::console::output(xiloader::color::lightcyan, "Git Repo   : https://github.com/EdenServer/xiloader");
+    xiloader::console::output(xiloader::color::lightred, "==========================================================");
+    xiloader::console::output(xiloader::color::warning,  "By connecting you agree to follow Eden's rules, terms, and conditions,");
+    xiloader::console::output(xiloader::color::warning,  "which may be obtained and read on Eden's Discord or website.");
     xiloader::console::output(xiloader::color::lightred, "==========================================================");
 
     /* Initialize Winsock */
@@ -224,6 +251,7 @@ int __cdecl main(int argc, char* argv[])
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID&)Real_gethostbyname, Mine_gethostbyname);
+    DetourAttach(&(PVOID&)Real_send, Mine_send);
     if (DetourTransactionCommit() != NO_ERROR)
     {
         /* Cleanup COM and Winsock */
@@ -401,6 +429,7 @@ int __cdecl main(int argc, char* argv[])
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     DetourDetach(&(PVOID&)Real_gethostbyname, Mine_gethostbyname);
+    DetourAttach(&(PVOID&)Real_send, Mine_send);
     DetourTransactionCommit();
 
     /* Cleanup COM and Winsock */

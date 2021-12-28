@@ -22,12 +22,17 @@ This file is part of DarkStar-server source code.
 */
 
 #include "network.h"
+#include "functions.h"
 
 /* Externals */
 extern std::string g_ServerAddress;
+extern std::string g_Email;
+extern std::string g_Discord;
 extern std::string g_Username;
 extern std::string g_Password;
 extern std::string g_ServerPort;
+extern std::string g_Hostname;
+extern unsigned char g_SessionHash[16];
 extern char* g_CharacterList;
 extern bool g_IsRunning;
 
@@ -195,6 +200,31 @@ namespace xiloader
         return true;
     }
 
+    void network::MaskPassword(std::string* mask)
+    {
+        /* Read in each char and instead of displaying it. display a "*" */
+        char ch;
+        while ((ch = static_cast<char>(_getch())) != '\r')
+        {
+            if (ch == '\0')
+                continue;
+            else if (ch == '\b')
+            {
+                if (mask->size())
+                {
+                    mask->pop_back();
+                    std::cout << "\b \b";
+                }
+            }
+            else
+            {
+                mask->push_back(ch);
+                std::cout << '*';
+            }
+        }
+        std::cout << std::endl;
+    }
+
     /**
      * @brief Verifies the players login information; also handles creating new accounts.
      *
@@ -206,8 +236,9 @@ namespace xiloader
     {
         static bool bFirstLogin = true;
 
-        char recvBuffer[1024] = { 0 };
+        char recvBuffer[32768] = { 0 };
         char sendBuffer[1024] = { 0 };
+        std::string registrationCode;
 
         /* Create connection if required.. */
         if (sock->s == NULL || sock->s == INVALID_SOCKET)
@@ -221,13 +252,16 @@ namespace xiloader
         if (bUseAutoLogin)
             xiloader::console::output(xiloader::color::lightgreen, "Autologin activated!");
 
+        bool doLogin = true;
+
         if (!bUseAutoLogin)
         {
-            xiloader::console::output("==========================================================");
-            xiloader::console::output("What would you like to do?");
-            xiloader::console::output("   1.) Login");
-            xiloader::console::output("   2.) Create New Account");
-            xiloader::console::output("==========================================================");
+            xiloader::console::output(xiloader::color::grey, "==========================================================");
+            xiloader::console::output(xiloader::color::lightgreen, "What would you like to do?");
+            xiloader::console::output(xiloader::color::lightcyan, "   1.) Login");
+            xiloader::console::output(xiloader::color::white, "   2.) Create Account (requires registration code)");
+            xiloader::console::output(xiloader::color::grey, "   3.) Quit");
+            xiloader::console::output(xiloader::color::grey, "==========================================================");
             printf("\nEnter a selection: ");
 
             std::string input;
@@ -237,56 +271,83 @@ namespace xiloader
             /* User wants to log into an existing account.. */
             if (input == "1")
             {
-                xiloader::console::output("Please enter your login information.");
+                xiloader::console::output("Please enter your login information. Press CTRL + c to quit.");
                 std::cout << "\nUsername: ";
                 std::cin >> g_Username;
                 std::cout << "Password: ";
                 g_Password.clear();
-
-                /* Read in each char and instead of displaying it. display a "*" */
-                char ch;
-                while ((ch = static_cast<char>(_getch())) != '\r')
-                {
-                    if (ch == '\0')
-                        continue;
-                    else if (ch == '\b')
-                    {
-                        if (g_Password.size())
-                        {
-                            g_Password.pop_back();
-                            std::cout << "\b \b";
-                        }
-                    }
-                    else
-                    {
-                        g_Password.push_back(ch);
-                        std::cout << '*';
-                    }
-                }
-                std::cout << std::endl;
-
-                sendBuffer[0x20] = 0x10;
+                MaskPassword(&g_Password);
+                std::cin.ignore();
             }
             /* User wants to create a new account.. */
             else if (input == "2")
             {
-            create_account:
-                xiloader::console::output("Please enter your desired login information.");
-                std::cout << "\nUsername (3-15 characters): ";
-                std::cin >> g_Username;
-                std::cout << "Password (6-15 characters): ";
-                std::cin >> g_Password;
-                std::cout << "Repeat Password           : ";
-                std::cin >> input;
-                std::cout << std::endl;
+                console::output(color::lightyelllow, "Please enter the required information to create an account.");
+                console::output(color::lightyelllow, "To obtain a registration code visit Eden's Discord channel.");
 
-                if (input != g_Password)
+                std::cout << "Registration Code                : ";
+                std::cin >> registrationCode;
+
+            retry_email_2:
+                std::cout << "E-mail (used for password reset) : ";
+                std::cin >> g_Email;
+                std::cout << "Repeat E-mail                    : ";
+                std::cin >> input;
+
+                if (input != g_Email || g_Email.length() < 3 || g_Email.length() > 63)
                 {
-                    xiloader::console::output(xiloader::color::error, "Passwords did not match! Please try again.");
-                    goto create_account;
+                    console::output(color::error, "E-mails mismatch, too short, or too long!  Please try again.");
+                    g_Email.clear();
+                    input.clear();
+                    goto retry_email_2;
                 }
 
-                sendBuffer[0x20] = 0x20;
+            retry_username_2:
+                std::cout << "Username (3-31 characters)       : ";
+                std::cin >> g_Username;
+
+                if (g_Username.length() < 3 || g_Username.length() > 31)
+                {
+                    console::output(color::error, "Username too short or too long!  Please try again.");
+                    g_Username.clear();
+                    goto retry_username_2;
+                }
+
+            retry_password_2:
+                g_Password.clear();
+                input.clear();
+
+                std::cout << "Password (6-31 characters)       : ";
+                MaskPassword(&g_Password);
+                std::cout << "Repeat Password                  : ";
+                MaskPassword(&input);
+
+                if (input != g_Password || g_Password.length() < 6 || g_Password.length() > 31)
+                {
+                    console::output(color::error, "Passwords mismatch, too short, or too long!  Please try again.");
+                    goto retry_password_2;
+                }
+
+            retry_discord_2:
+                g_Discord.clear();
+                std::cout << "Optional Discord handle, example Eden#1234\n";
+                std::cout << "(6-31 characters, ENTER for none): ";
+                std::cin.ignore();
+                getline(std::cin, g_Discord);
+
+                if (g_Discord.length() != 0 && (g_Discord.length() < 6 || g_Discord.length() > 31))
+                {
+                    console::output(color::error, "Discord handle too short or too long!  Please try again.");
+                    goto retry_discord_2;
+                }
+
+                doLogin = false;
+            }
+            else if (input == "3")
+            {
+                closesocket(sock->s);
+                sock->s = INVALID_SOCKET;
+                exit(0);
             }
 
             std::cout << std::endl;
@@ -294,17 +355,53 @@ namespace xiloader
         else
         {
             /* User has auto-login enabled.. */
-            sendBuffer[0x20] = 0x10;
             bFirstLogin = false;
         }
 
+        sendBuffer[0] = 1;
+        send(sock->s, sendBuffer, 1, 0);
+        int received = recv(sock->s, recvBuffer, 26624 + 12, 0);
+        std::string uniqueKey(recvBuffer + received - 8, recvBuffer + received);
+
+        memset(sendBuffer, 0, 1024);
+        memset(recvBuffer, 0, 32768);
+
+        if (doLogin)
+        {
+            sendBuffer[0xFF] = 0x10; // LOGIN
+        }
+        else
+        {
+            sendBuffer[0xFF] = 0x20; // LOGIN_CREATE
+        }
+
         /* Copy username and password into buffer.. */
-        memcpy(sendBuffer + 0x00, g_Username.c_str(), 16);
-        memcpy(sendBuffer + 0x10, g_Password.c_str(), 16);
+        memcpy(sendBuffer + 0x0, g_Username.c_str(), 32);
+        memcpy(sendBuffer + 0x20, g_Discord.c_str(), 32);
+        memcpy(sendBuffer + 0x40, g_Password.c_str(), 32);
+        memcpy(sendBuffer + 0x80, g_Email.c_str(), 64);
+        memcpy(sendBuffer + 0xC0, xiloader::functions::getMACAddress().c_str(), 17);
+        memcpy(sendBuffer + 0xE0, uniqueKey.c_str(), 8);
+        memcpy(sendBuffer + 0xE8, registrationCode.c_str(), 7);
+        memcpy(sendBuffer + 0xEF, g_Hostname.c_str(), 15);
+
+        memcpy(sendBuffer + 0xD7, "1", 1);
+
+        /* Simple bit flipping to mask the values in-transit, and simple crc for integrity */
+        for (int index = 0; index < 0x100; ++index)
+        {
+            if (sendBuffer[index] != 0x00 && sendBuffer[index] != 0xFF)
+            {
+                sendBuffer[index] ^= 0xFF;
+                sendBuffer[0x100 + (index % 4)] ^= sendBuffer[index];
+            }
+        }
 
         /* Send info to server and obtain response.. */
-        send(sock->s, sendBuffer, 33, 0);
-        recv(sock->s, recvBuffer, 16, 0);
+        send(sock->s, sendBuffer, 0x104, 0);
+        recv(sock->s, recvBuffer, 0x15, 0);
+
+        bool result = false;
 
         /* Handle the obtained result.. */
         switch (recvBuffer[0])
@@ -312,33 +409,72 @@ namespace xiloader
         case 0x0001: // Success (Login)
             xiloader::console::output(xiloader::color::success, "Successfully logged in as %s!", g_Username.c_str());
             sock->AccountId = *(UINT32*)(recvBuffer + 0x01);
-            closesocket(sock->s);
-            sock->s = INVALID_SOCKET;
-            return true;
-
+            memcpy(g_SessionHash, (UCHAR*)(recvBuffer + 0x05), 16);
+            result = true;
+            break;
         case 0x0002: // Error (Login)
             xiloader::console::output(xiloader::color::error, "Failed to login. Invalid username or password.");
-            closesocket(sock->s);
-            sock->s = INVALID_SOCKET;
-            return false;
-
+            break;
         case 0x0003: // Success (Create Account)
             xiloader::console::output(xiloader::color::success, "Account successfully created!");
-            closesocket(sock->s);
-            sock->s = INVALID_SOCKET;
-            return false;
-
+            sock->AccountId = *(UINT32*)(recvBuffer + 0x01);
+            memcpy(g_SessionHash, (UCHAR*)(recvBuffer + 0x05), 16);
+            result = true;
+            break;
         case 0x0004: // Error (Create Account)
             xiloader::console::output(xiloader::color::error, "Failed to create the new account. Username already taken.");
-            closesocket(sock->s);
-            sock->s = INVALID_SOCKET;
-            return false;
+            break;
+        case 0x0014: // Error (Create Account Taken)
+            console::output(color::error, "Username \"%s\" already taken.", g_Username.c_str());
+            break;
+        case 0x0024: // Error (Create Account Syntax)
+            console::output(color::error, "Invalid e-mail format \"%s\".", g_Email.c_str());
+            break;
+        case 0x0034: // Error (Create Account Code)
+            console::output(color::error, "Registration code \"%s\" is either invalid or has expired.", registrationCode.c_str());
+            break;
+        case 0x0044: // Error (Create Account Lock-out)
+            console::output(color::warning, "Warning, account creation is in lock-out period.  Try again shortly.");
+            break;
+        case 0x0005: // Wait (Session Active)
+            console::output(color::warning, "Character logged in. Please wait a few minutes and try again.");
+            break;
+        case 0x0006: // Invalid (Login)
+            console::output(color::warning, "Invalid username or password.");
+            break;
+        case 0x0007: // Too many connections.
+            console::output(color::warning, "Too many connections from the same location.");
+            break;
+        default:
+            console::output(color::error, "Unexpected server response: %d", recvBuffer[0]);
+            break;
         }
 
-        /* We should not get here.. */
         closesocket(sock->s);
         sock->s = INVALID_SOCKET;
-        return false;
+
+        if (!result)
+        {
+            std::cout << "Press the ENTER key to close and retry...";
+            getline(std::cin, registrationCode);
+            exit(0);
+        }
+
+        return result;
+    }
+
+    bool socket_connected(SOCKET sock)
+    {
+        char buf;
+        int err = recv(sock, &buf, 1, MSG_PEEK);
+        if (err == SOCKET_ERROR)
+        {
+            if (WSAGetLastError() != WSAEWOULDBLOCK)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -370,8 +506,9 @@ namespace xiloader
                 sendBuffer[0] = 0xA1u;
                 memcpy(sendBuffer + 0x01, &sock->AccountId, 4);
                 memcpy(sendBuffer + 0x05, &sock->ServerAddress, 4);
+                memcpy(sendBuffer + 0x09, &g_SessionHash, 16);
                 xiloader::console::output(xiloader::color::warning, "Sending account id..");
-                sendSize = 9;
+                sendSize = 25;
                 break;
 
             case 0x0002:
@@ -382,8 +519,9 @@ namespace xiloader
                 break;
 
             case 0x0003:
+            case 0x0004:
                 xiloader::console::output(xiloader::color::warning, "Receiving character list..");
-                for (auto x = 0; x <= recvBuffer[1]; x++)
+                for (auto x = 0; x < recvBuffer[1]; x++) // 1 = size/length/character count
                 {
                     g_CharacterList[0x00 + (x * 0x68)] = 1;
                     g_CharacterList[0x02 + (x * 0x68)] = 1;
@@ -392,10 +530,15 @@ namespace xiloader
                     g_CharacterList[0x18 + (x * 0x68)] = 0x20;
                     g_CharacterList[0x28 + (x * 0x68)] = 0x20;
 
-                    memcpy(g_CharacterList + 0x04 + (x * 0x68), recvBuffer + 0x14 * (x + 1), 4); // Character Id
+                    memcpy(g_CharacterList + 0x04 + (x * 0x68), recvBuffer + 0x10 * (x + 1) + 0x04, 4); // Character Id
                     memcpy(g_CharacterList + 0x08 + (x * 0x68), recvBuffer + 0x10 * (x + 1), 4); // Content Id
                 }
                 sendSize = 0;
+                break;
+
+            case 0x0005:
+                sendBuffer[0] = 0xA5u; // Heartbeat response
+                sendSize = 1;
                 break;
             }
 
@@ -406,12 +549,18 @@ namespace xiloader
             auto result = sendto(sock->s, sendBuffer, sendSize, 0, (struct sockaddr*)&client, socksize);
             if (sendSize == 72 || result == SOCKET_ERROR || sendSize == -1)
             {
-                shutdown(sock->s, SD_SEND);
-                closesocket(sock->s);
-                sock->s = INVALID_SOCKET;
+                if (!socket_connected(sock->s)) {
+                    console::output("Data socket disconnected...attempting to reconnect.");
+                    if (!network::CreateConnection((datasocket*)lpParam, "54230"))
+                    {
+                        shutdown(sock->s, SD_SEND);
+                        closesocket(sock->s);
+                        sock->s = INVALID_SOCKET;
 
-                xiloader::console::output("Server connection done; disconnecting!");
-                return 0;
+                        xiloader::console::output("Server connection done; disconnecting!");
+                        return 0;
+                    }
+                }
             }
 
             sendSize = 0;

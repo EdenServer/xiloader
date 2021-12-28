@@ -160,4 +160,55 @@ namespace xiloader
         return InstallFolder;
     }
 
+    std::string functions::getMACAddress()
+    {
+        // Allocate space for at least one adapter..
+        auto info = (IP_ADAPTER_INFO*)new uint8_t[sizeof(IP_ADAPTER_INFO)];
+        ULONG size = 0;
+
+        // Obtain the adapter info, if fails, resize the buffer..
+        if (::GetAdaptersInfo(info, &size) == ERROR_BUFFER_OVERFLOW)
+        {
+            delete[] info;
+            info = (IP_ADAPTER_INFO*)new uint8_t[size];
+        }
+
+        // Reobtain the adapter info..
+        if (::GetAdaptersInfo(info, &size) != ERROR_SUCCESS)
+        {
+            delete[] info;
+            return "";
+        }
+
+        // Walk the adapters..
+        std::string adapterAddress;
+        auto adapter = info;
+        while (adapter)
+        {
+            // Build the adapter address..
+            for (size_t x = 0; x < adapter->AddressLength; x++)
+            {
+                // Build the address from the adapter info..
+                char buffer[256] = { 0 };
+                std::snprintf(buffer, 256, "%02x", adapter->Address[x]);
+                adapterAddress += buffer;
+
+                // Append colons between address parts..
+                if (x < adapter->AddressLength - 1)
+                    adapterAddress += ":";
+            }
+
+            // Ensure this adapter found a valid address..
+            if (adapterAddress.length() > 0)
+                break;
+
+            // Step to the next adapter..
+            adapter = adapter->Next;
+        }
+
+        // Cleanup and return..
+        delete[] info;
+        return adapterAddress;
+    }
+
 }; // namespace xiloader

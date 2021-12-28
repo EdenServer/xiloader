@@ -108,6 +108,8 @@ namespace xiloader
          */
         static bool ResolveHostname(const char* host, PULONG lpOutput);
 
+        static void MaskPassword(std::string* mask);
+
         /**
          * @brief Verifies the players login information; also handles creating new accounts.
          *

@@ -29,10 +29,12 @@ This file is part of DarkStar-server source code.
 #endif
 
 #include <WinSock2.h>
+#include <iphlpapi.h>
 #include <WS2tcpip.h>
 #include <Windows.h>
 #include <string>
 
+#pragma comment(lib, "IPHLPAPI.lib")
 #pragma comment(lib, "Psapi.lib")
 #include <Psapi.h>
 
@@ -95,6 +97,14 @@ namespace xiloader
          * @return installation folder path.
          */
         static const char* GetRegistryPlayOnlineInstallFolder(int lang);
+
+        /**
+         * @brief Gets the MAC address of the machine.
+         *  "00:00:00:00:00"
+         *
+         * @return The machine MAC address
+         */
+        static std::string getMACAddress();
     };
 
 }; // namespace xiloader
