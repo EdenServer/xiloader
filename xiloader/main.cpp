@@ -223,8 +223,9 @@ int __cdecl main(int argc, char* argv[])
     xiloader::console::output(xiloader::color::lightcyan, "Bug Reports: https://github.com/EdenServer/xiloader/issues");
     xiloader::console::output(xiloader::color::lightcyan, "Git Repo   : https://github.com/EdenServer/xiloader");
     xiloader::console::output(xiloader::color::lightred, "==========================================================");
-    xiloader::console::output(xiloader::color::warning,  "By connecting you agree to follow Eden's rules, terms, and conditions,");
-    xiloader::console::output(xiloader::color::warning,  "which may be obtained and read on Eden's Discord or website.");
+    xiloader::console::output(xiloader::color::warning,  "By connecting you agree to follow Eden's rules, terms, and");
+    xiloader::console::output(xiloader::color::warning,  "conditions. These can be obtained and read on");
+    xiloader::console::output(xiloader::color::warning,  "Eden's Discord or website: https://edenxi.com/rules");
     xiloader::console::output(xiloader::color::lightred, "==========================================================");
 
     /* Initialize Winsock */
