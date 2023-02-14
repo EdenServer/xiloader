@@ -248,6 +248,22 @@ namespace xiloader
                 return false;
         }
 
+        /* Query server for login options. This should be backward compatible. */
+        send(sock->s, sendBuffer, 4, 0);
+        if (recv(sock->s, recvBuffer, 4, 0) < 0) {
+            closesocket(sock->s);
+            sock->s = INVALID_SOCKET;
+
+            xiloader::console::output(xiloader::color::error, "Failed to connect to server!");
+            std::cout << "Press the ENTER key to close...";
+            getline(std::cin, registrationCode);
+            exit(0);
+        }
+        else if (recvBuffer[0] == 1)
+        {
+            g_IsRegistrationCodeRequired = true;
+        }
+
         /* Determine if we should auto-login.. */
         bool bUseAutoLogin = !g_Username.empty() && !g_Password.empty() && bFirstLogin;
         if (bUseAutoLogin)
