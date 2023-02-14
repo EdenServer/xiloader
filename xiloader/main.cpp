@@ -38,6 +38,7 @@ std::string g_Username = ""; // The username being logged in with.
 std::string g_Password = ""; // The password being logged in with.
 std::string g_Discord = ""; // The optional Discord handle.
 std::string g_Hostname = ""; // 1-15 characters, https://support.microsoft.com/en-us/help/909264/naming-conventions-in-active-directory-for-computers-domains-sites-and
+bool g_IsRegistrationCodeRequired = false;
 
 unsigned char g_SessionHash[16] = { 0 }; // Session variable
 
