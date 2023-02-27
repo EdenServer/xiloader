@@ -32,6 +32,7 @@ extern std::string g_Username;
 extern std::string g_Password;
 extern std::string g_ServerPort;
 extern std::string g_Hostname;
+extern bool g_IsRegistrationCodeRequired;
 extern unsigned char g_SessionHash[16];
 extern char* g_CharacterList;
 extern bool g_IsRunning;
@@ -247,6 +248,22 @@ namespace xiloader
                 return false;
         }
 
+        /* Query server for login options. This should be backward compatible. */
+        send(sock->s, sendBuffer, 4, 0);
+        if (recv(sock->s, recvBuffer, 4, 0) < 0) {
+            closesocket(sock->s);
+            sock->s = INVALID_SOCKET;
+
+            xiloader::console::output(xiloader::color::error, "Failed to connect to server!");
+            std::cout << "Press the ENTER key to close...";
+            getline(std::cin, registrationCode);
+            exit(0);
+        }
+        else if (recvBuffer[0] == 1)
+        {
+            g_IsRegistrationCodeRequired = true;
+        }
+
         /* Determine if we should auto-login.. */
         bool bUseAutoLogin = !g_Username.empty() && !g_Password.empty() && bFirstLogin;
         if (bUseAutoLogin)
@@ -259,7 +276,9 @@ namespace xiloader
             xiloader::console::output(xiloader::color::grey, "==========================================================");
             xiloader::console::output(xiloader::color::lightgreen, "What would you like to do?");
             xiloader::console::output(xiloader::color::lightcyan, "   1.) Login");
-            xiloader::console::output(xiloader::color::white, "   2.) Create Account (requires registration code)");
+            g_IsRegistrationCodeRequired
+                ? xiloader::console::output(xiloader::color::white, "   2.) Create Account (requires registration code)")
+                : xiloader::console::output(xiloader::color::white, "   2.) Create Account");
             xiloader::console::output(xiloader::color::grey, "   3.) Quit");
             xiloader::console::output(xiloader::color::grey, "==========================================================");
             printf("\nEnter a selection: ");
@@ -283,10 +302,12 @@ namespace xiloader
             else if (input == "2")
             {
                 console::output(color::lightyelllow, "Please enter the required information to create an account.");
-                console::output(color::lightyelllow, "To obtain a registration code visit Eden's Discord channel.");
-
-                std::cout << "Registration Code                : ";
-                std::cin >> registrationCode;
+                if (g_IsRegistrationCodeRequired)
+                {
+                    console::output(color::lightyelllow, "To obtain a registration code visit Eden's Discord channel.");
+                    std::cout << "Registration Code                : ";
+                    std::cin >> registrationCode;
+                }
 
             retry_email_2:
                 std::cout << "E-mail (used for password reset) : ";
